@@ -1,6 +1,5 @@
 import random
 
-# Base pool of tech-related queries
 BASE_QUERIES = [
     "What is a large language model?",
     "Explain machine learning",
@@ -55,40 +54,35 @@ BASE_QUERIES = [
 ]
 
 
-def generate_workload(size=200, repeat_ratio=0.0):
-    """
-    Generates workload of tech queries with given repetition ratio
-    """
+def generate_workload(size=4, repeat_ratio=0.0):
+    unique_count = max(1, int(size * (1 - repeat_ratio)))
+    duplicate_count = size - unique_count
 
-    # Step 1: create base unique queries (expand from base pool)
     queries = []
-    for i in range(size):
+
+    for i in range(unique_count):
         q = random.choice(BASE_QUERIES)
-        queries.append(f"{q} (variation {i})")  # ensures uniqueness
+        queries.append(f"{q} (variation {i})")
 
-    # Step 2: introduce repetition
-    num_duplicates = int(size * repeat_ratio)
-
-    for i in range(num_duplicates):
-        queries[i] = random.choice(queries[:50])  # duplicate from first 50
+    for i in range(duplicate_count):
+        queries.append(random.choice(queries))
 
     return queries
 
 
-# Optional: generate all 4 datasets at once
-def generate_all_workloads():
+
+def generate_all_workloads(size=4):
     return {
-        "W1_0%": generate_workload(200, 0.0),
-        "W2_25%": generate_workload(200, 0.25),
-        "W3_50%": generate_workload(200, 0.5),
-        "W4_75%": generate_workload(200, 0.75),
+        "W1_0%": generate_workload(size, 0.0),
+        "W2_25%": generate_workload(size, 0.25),
+        "W3_50%": generate_workload(size, 0.5),
+        "W4_75%": generate_workload(size, 0.75),
     }
 
 
-# Test run
 if __name__ == "__main__":
-    workloads = generate_all_workloads()
+    workloads = generate_all_workloads(size=4)
 
     for name, data in workloads.items():
         print(f"\n{name} SAMPLE:")
-        print(data[:10])
+        print(data)

@@ -1,6 +1,8 @@
 import time
 import requests
+import pandas as pd
 import matplotlib.pyplot as plt
+
 from workload import generate_workload
 
 API_URL = "http://127.0.0.1:8000/route"
@@ -9,8 +11,8 @@ CHEAP_COST = 0.001
 EXPENSIVE_COST = 0.01
 
 
-def run_test(repeat_ratio):
-    queries = generate_workload(repeat_ratio=repeat_ratio)
+def run_test(repeat_ratio, size=4):
+    queries = generate_workload(size=size, repeat_ratio=repeat_ratio)
 
     hits = 0
     total_time = 0
@@ -30,16 +32,12 @@ def run_test(repeat_ratio):
 
         model_used = data["model"]
 
-        # Cache hit
         if model_used == "cache":
             hits += 1
 
-            # False positive detection
             if q not in seen_queries:
                 false_positives += 1
-
         else:
-            # Cost tracking
             if "8b" in model_used:
                 total_cost += CHEAP_COST
             else:
@@ -53,8 +51,8 @@ def run_test(repeat_ratio):
     return hit_rate, avg_latency, total_cost, false_positives
 
 
-def run_without_cache(repeat_ratio):
-    queries = generate_workload(repeat_ratio=repeat_ratio)
+def run_without_cache(repeat_ratio, size=4):
+    queries = generate_workload(size=size, repeat_ratio=repeat_ratio)
 
     total_time = 0
     total_cost = 0
@@ -80,89 +78,75 @@ def run_without_cache(repeat_ratio):
     return avg_latency, total_cost
 
 
-def run_all_tests():
-    ratios = [0.0, 0.25, 0.5, 0.75]
+def run_evaluation(size=4):
+    ratios = [0.0,0.25, 0.5,0.75]
 
-    hit_rates = []
-    latencies = []
-    costs = []
-    false_pos = []
-    cost_no_cache = []
+    rows = []
 
     for r in ratios:
-        print(f"\nRepetition: {r*100}%")
+        hit, latency_cache, cost_cache, fp = run_test(r, size=size)
+        latency_no_cache, cost_no_cache = run_without_cache(r, size=size)
 
-        hit, latency, cost, fp = run_test(r)
-        lat_nc, cost_nc = run_without_cache(r)
+        rows.append({
+            "Repetition Rate": r,
+            "Hit Rate": hit,
+            "Latency With Cache": latency_cache,
+            "Latency Without Cache": latency_no_cache,
+            "Cost With Cache": cost_cache,
+            "Cost Without Cache": cost_no_cache,
+            "False Positives": fp,
+        })
 
-        hit_rates.append(hit)
-        latencies.append(latency)
-        costs.append(cost)
-        false_pos.append(fp)
-        cost_no_cache.append(cost_nc)
-
-        print(f"Hit Rate: {hit}")
-        print(f"Latency (cache): {latency}")
-        print(f"Latency (no cache): {lat_nc}")
-        print(f"Cost (cache): ${cost}")
-        print(f"Cost (no cache): ${cost_nc}")
-        print(f"False Positives: {fp}")
-
-    # 📈 Hit Rate vs Repetition
-    plt.figure()
-    plt.plot(ratios, hit_rates)
-    plt.xlabel("Repetition Rate")
-    plt.ylabel("Hit Rate")
-    plt.title("Hit Rate vs Repetition")
-    plt.show()
-
-    # 📈 Latency vs Repetition
-    plt.figure()
-    plt.plot(ratios, latencies, label="With Cache")
-    plt.xlabel("Repetition Rate")
-    plt.ylabel("Latency")
-    plt.title("Latency vs Repetition")
-    plt.legend()
-    plt.show()
-
-    # 📈 Cost vs Repetition
-    plt.figure()
-    plt.plot(ratios, costs, label="With Cache")
-    plt.plot(ratios, cost_no_cache, label="Without Cache")
-    plt.xlabel("Repetition Rate")
-    plt.ylabel("Cost")
-    plt.title("Cost vs Repetition")
-    plt.legend()
-    plt.show()
-
-    # 📈 False Positives
-    plt.figure()
-    plt.plot(ratios, false_pos)
-    plt.xlabel("Repetition Rate")
-    plt.ylabel("False Positives")
-    plt.title("False Positives vs Repetition")
-    plt.show()
+    return pd.DataFrame(rows)
 
 
-def threshold_experiment():
-    thresholds = [0.85, 0.90, 0.95]
-    hit_rates = []
+def create_graphs(results_df):
+    figures = {}
 
-    for t in thresholds:
-        print(f"\nTesting threshold: {t}")
+    fig1, ax1 = plt.subplots()
+    ax1.plot(results_df["Repetition Rate"], results_df["Hit Rate"], marker="o")
+    ax1.set_xlabel("Repetition Rate")
+    ax1.set_ylabel("Hit Rate")
+    ax1.set_title("Hit Rate vs Repetition")
+    ax1.grid(True)
+    figures["Hit Rate vs Repetition"] = fig1
 
-        # IMPORTANT: backend must use this threshold manually
-        hit, _, _, _ = run_test(0.5)  # fixed repetition
-        hit_rates.append(hit)
+    fig2, ax2 = plt.subplots()
+    ax2.plot(results_df["Repetition Rate"], results_df["Latency With Cache"], marker="o", label="With Cache")
+    ax2.plot(results_df["Repetition Rate"], results_df["Latency Without Cache"], marker="o", label="Without Cache")
+    ax2.set_xlabel("Repetition Rate")
+    ax2.set_ylabel("Average Latency")
+    ax2.set_title("Latency vs Repetition")
+    ax2.legend()
+    ax2.grid(True)
+    figures["Latency vs Repetition"] = fig2
 
-    plt.figure()
-    plt.plot(thresholds, hit_rates)
-    plt.xlabel("Threshold")
-    plt.ylabel("Hit Rate")
-    plt.title("Hit Rate vs Threshold")
-    plt.show()
+    fig3, ax3 = plt.subplots()
+    ax3.plot(results_df["Repetition Rate"], results_df["Cost With Cache"], marker="o", label="With Cache")
+    ax3.plot(results_df["Repetition Rate"], results_df["Cost Without Cache"], marker="o", label="Without Cache")
+    ax3.set_xlabel("Repetition Rate")
+    ax3.set_ylabel("Cost")
+    ax3.set_title("Cost vs Repetition")
+    ax3.legend()
+    ax3.grid(True)
+    figures["Cost vs Repetition"] = fig3
+
+    fig4, ax4 = plt.subplots()
+    ax4.plot(results_df["Repetition Rate"], results_df["False Positives"], marker="o")
+    ax4.set_xlabel("Repetition Rate")
+    ax4.set_ylabel("False Positives")
+    ax4.set_title("False Positives vs Repetition")
+    ax4.grid(True)
+    figures["False Positives vs Repetition"] = fig4
+
+    return figures
 
 
 if __name__ == "__main__":
-    run_all_tests()
-    threshold_experiment()
+    results = run_evaluation(size=4)
+    print(results)
+
+    graphs = create_graphs(results)
+
+    for title, fig in graphs.items():
+        fig.show()
