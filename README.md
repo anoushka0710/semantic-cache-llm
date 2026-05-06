@@ -1,19 +1,19 @@
 # semantic-cache-llm
-# 🧠 Smart LLM Router with Semantic Cache
+# Smart LLM Router with Semantic Cache
 
-## 🎯 Problem Statement
+##  Problem Statement
 
 LLMs are powerful but expensive. Sending every query to large models increases cost and latency.
 
 This project optimizes:
 
-* 💰 Cost
-* ⚡ Latency
+* Cost
+* Latency
   using intelligent routing and semantic caching.
 
 ---
 
-## 💡 Solution
+##  Solution
 
 We built a system that:
 
@@ -22,7 +22,7 @@ We built a system that:
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
                             ↓
@@ -30,7 +30,7 @@ User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
 
 ---
 
-## 🚀 Features
+##  Features
 
 * Smart routing (cheap vs expensive model)
 * Cost tracking
@@ -40,7 +40,7 @@ User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
 
 ---
 
-## 📊 Current Output
+##  Current Output
 
 * Response
 * Model used
@@ -50,7 +50,7 @@ User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
 
 ---
 
-## 📈 Future Evaluation (Cache Phase)
+##  Future Evaluation (Cache Phase)
 
 * Hit rate vs repetition
 * Cost vs repetition
@@ -58,7 +58,7 @@ User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 * Frontend: Streamlit
 * Backend: FastAPI
@@ -67,7 +67,7 @@ User → Streamlit UI → FastAPI Backend → Router → LLM (Groq) → Response
 
 ---
 
-## ▶️ How to Run
+##  How to Run
 
 ### Backend
 
@@ -83,22 +83,22 @@ streamlit run app.py
 
 ---
 
-## 👥 Team
+##  Team
 
-* Backend: Person 1
-* Cache & Evaluation: Person 2
-* Frontend & Integration: Person 3
-
----
-
-## 📌 Status
-
-* ✅ Routing system complete
-* ✅ UI complete
-* ⏳ Cache integration in progress
+* Backend: Anoushka 
+* Cache & Evaluation: Drishty
+* Frontend & Integration: Kaavika Sri
 
 ---
 
-## 📷 Demo
+##  Status
 
-(Add your screenshot here)
+*  Routing system complete
+*  UI complete
+*  Cache integration in progress
+
+---
+
+##  Demo
+
+
