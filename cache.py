@@ -1,42 +1,15 @@
-import json
 import os
 import re
-from difflib import SequenceMatcher
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+import json
+import pickle
 
+from gptcache import Config, cache
+from gptcache.adapter.api import get, put
+from gptcache.embedding.string import to_embeddings
+from gptcache.manager import manager_factory
+from gptcache.processor.pre import get_prompt
+from gptcache.similarity_evaluation import ExactMatchEvaluation
 
-DEFAULT_SIMILARITY_THRESHOLD = 0.55
-STOPWORDS = {
-    "a",
-    "about",
-    "an",
-    "are",
-    "by",
-    "can",
-    "do",
-    "does",
-    "explain",
-    "for",
-    "give",
-    "how",
-    "in",
-    "is",
-    "it",
-    "me",
-    "meant",
-    "of",
-    "please",
-    "tell",
-    "the",
-    "to",
-    "what",
-    "when",
-    "where",
-    "who",
-    "why",
-    "with",
-}
 
 ABBREVIATIONS = {
     "ai": "artificial intelligence",
@@ -51,19 +24,50 @@ ABBREVIATIONS = {
 }
 
 _CACHE_READY = False
-_CACHE: List[Dict[str, Any]] = []
-
-_CACHE_FILE = Path(__file__).with_name("gptcache_data") / "semantic_cache.json"
+_SIMILARITY_THRESHOLD = 0.55
+_LOCAL_CACHE = {}
+_CACHE_FILE = os.path.join(os.path.dirname(__file__), "gptcache_data", "cache_store.pkl")
 
 
 def normalize_query(query: str) -> str:
     text = query.lower().strip()
     text = text.replace("what's", "what is")
     text = text.replace("whats", "what is")
-    text = re.sub(r"\bwhats\b", "what is", text)
-    text = re.sub(r"[?!.:,;()\[\]{}]+", " ", text)
+    text = re.sub(r"\bwhat\s+does\s+(.+?)\s+mean\b", r"what is \1", text)
+    text = re.sub(r"\bwhat\s+do\s+(.+?)\s+mean\b", r"what is \1", text)
+    text = re.sub(r"\bwhat\s+is\s+meant\s+by\b", "what is", text)
+    text = re.sub(r"\bwhat\s+is\s+the\s+meaning\s+of\b", "what is", text)
+    text = re.sub(r"\bexplain\b", "what is", text)
+    text = re.sub(r"\bdefine\b", "what is", text)
+    text = re.sub(r"\btell\s+me\s+about\b", "what is", text)
+    # Remove articles
+    text = re.sub(r"\s+\b(a|an|the)\b\s+", " ", text)
+    text = re.sub(r"[?!.:,;]+", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def _load_cache():
+    global _LOCAL_CACHE
+    if os.path.exists(_CACHE_FILE):
+        try:
+            with open(_CACHE_FILE, "rb") as f:
+                _LOCAL_CACHE = pickle.load(f)
+        except Exception as e:
+            print(f"Error loading cache: {e}")
+            _LOCAL_CACHE = {}
+    else:
+        _LOCAL_CACHE = {}
+
+
+def _save_cache():
+    global _LOCAL_CACHE
+    os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
+    try:
+        with open(_CACHE_FILE, "wb") as f:
+            pickle.dump(_LOCAL_CACHE, f)
+    except Exception as e:
+        print(f"Error saving cache: {e}")
 
 
 def _expand_abbreviations(text: str) -> str:
@@ -73,111 +77,82 @@ def _expand_abbreviations(text: str) -> str:
     return expanded
 
 
-def query_tokens(query: str) -> List[str]:
-    text = _expand_abbreviations(normalize_query(query))
-    tokens = re.findall(r"[a-z0-9]+", text)
-    return [token for token in tokens if token not in STOPWORDS]
-
-
 def semantic_similarity(left: str, right: str) -> float:
-    left_tokens = query_tokens(left)
-    right_tokens = query_tokens(right)
+    try:
+        from sentence_transformers import util
+        from sentence_transformers import SentenceTransformer
 
-    if not left_tokens or not right_tokens:
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        left_emb = model.encode(left, convert_to_tensor=True)
+        right_emb = model.encode(right, convert_to_tensor=True)
+        similarity = util.pytorch_cos_sim(left_emb, right_emb).item()
+        return round(float(similarity), 4)
+    except Exception:
         return 0.0
 
-    left_set = set(left_tokens)
-    right_set = set(right_tokens)
 
-    overlap = len(left_set & right_set)
-    union = len(left_set | right_set)
-    token_score = overlap / union if union else 0.0
-
-    left_text = " ".join(left_tokens)
-    right_text = " ".join(right_tokens)
-    sequence_score = SequenceMatcher(None, left_text, right_text).ratio()
-
-    return round((0.65 * token_score) + (0.35 * sequence_score), 4)
-
-
-def init_cache() -> None:
-    global _CACHE_READY, _CACHE
-
+def init_cache():
+    global _CACHE_READY
     if _CACHE_READY:
         return
-
-    if _CACHE_FILE.exists():
-        try:
-            _CACHE = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            _CACHE = []
-    else:
-        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE = []
-
+    _load_cache()
     _CACHE_READY = True
 
 
-def _persist_cache() -> None:
-    _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _CACHE_FILE.write_text(json.dumps(_CACHE, indent=2), encoding="utf-8")
-
-
 def set_similarity_threshold(threshold: float) -> None:
-    global DEFAULT_SIMILARITY_THRESHOLD
-    DEFAULT_SIMILARITY_THRESHOLD = max(0.0, min(1.0, float(threshold)))
+    global _SIMILARITY_THRESHOLD
+    _SIMILARITY_THRESHOLD = max(0.0, min(1.0, float(threshold)))
+
+
+def _compute_similarity(query1: str, query2: str) -> float:
+    """Compute Jaccard similarity between two normalized queries (0-1)"""
+    tokens1 = set(query1.split())
+    tokens2 = set(query2.split())
+    
+    if not tokens1 or not tokens2:
+        return 1.0 if query1 == query2 else 0.0
+    
+    intersection = len(tokens1 & tokens2)
+    union = len(tokens1 | tokens2)
+    
+    return intersection / union if union > 0 else 0.0
 
 
 def clear_cache() -> None:
-    global _CACHE
-
+    global _LOCAL_CACHE
+    _LOCAL_CACHE = {}
+    if os.path.exists(_CACHE_FILE):
+        try:
+            os.remove(_CACHE_FILE)
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
     init_cache()
-    _CACHE = []
-    _persist_cache()
 
 
-def get_cached_response(query: str, threshold: Optional[float] = None):
+def get_cached_response(query: str, threshold: float = None):
+    """Get cached response for a query using similarity-based matching"""
     init_cache()
-
-    similarity_threshold = (
-        DEFAULT_SIMILARITY_THRESHOLD if threshold is None else max(0.0, min(1.0, float(threshold)))
-    )
-
+    if threshold is not None:
+        set_similarity_threshold(threshold)
+    
+    normalized = normalize_query(query)
+    
+    # Find best matching cached query above threshold
     best_match = None
-    best_score = 0.0
-
-    for item in _CACHE:
-        score = semantic_similarity(query, item["query"])
-        if score > best_score:
-            best_score = score
-            best_match = item
-
-    if best_match and best_score >= similarity_threshold:
-        return best_match["response"]
-
-    return None
+    best_similarity = 0.0
+    
+    for cached_query, response in _LOCAL_CACHE.items():
+        similarity = _compute_similarity(normalized, cached_query)
+        if similarity >= _SIMILARITY_THRESHOLD and similarity > best_similarity:
+            best_match = response
+            best_similarity = similarity
+    
+    return best_match
 
 
 def save_cached_response(query: str, response: str) -> None:
+    """Save response to cache"""
     init_cache()
-
-    normalized_query = normalize_query(query)
-    tokens = query_tokens(query)
-
-    for item in _CACHE:
-        if item["normalized_query"] == normalized_query:
-            item["query"] = query
-            item["tokens"] = tokens
-            item["response"] = response
-            _persist_cache()
-            return
-
-    _CACHE.append(
-        {
-            "query": query,
-            "normalized_query": normalized_query,
-            "tokens": tokens,
-            "response": response,
-        }
-    )
-    _persist_cache()
+    normalized = normalize_query(query)
+    _LOCAL_CACHE[normalized] = response
+    _save_cache()
