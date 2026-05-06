@@ -6,7 +6,7 @@ from evaluation import run_evaluation, create_graphs
 st.set_page_config(
     page_title="LLM Router",
     page_icon="",
-    layout="centered"
+    layout="wide"
 )
 
 st.markdown("""
@@ -19,6 +19,9 @@ Optimize cost & latency using intelligent routing + caching
 """, unsafe_allow_html=True)
 
 st.divider()
+
+if "evaluation_data" not in st.session_state:
+    st.session_state.evaluation_data = None
 
 query = st.text_input("Enter your question")
 
@@ -105,23 +108,61 @@ if st.button("Submit", use_container_width=True):
 
 st.divider()
 
-st.markdown("### Evaluation Graphs")
+st.markdown("### Evaluation Dashboard")
+st.caption("Threshold analysis first, then repetition analysis, with the results table preserved below.")
 
 with st.expander("Run cache evaluation", expanded=True):
-    st.info("This quick test uses size = 4 to keep API calls low.")
+    st.info("See the evaluation graphs for your query !!")
 
     if st.button("Generate Graphs", use_container_width=True):
         with st.spinner("Running evaluation with size=4..."):
             try:
-                results_df = run_evaluation(size=2)
-                graphs = create_graphs(results_df)
+                repetition_df, threshold_df = run_evaluation(size=4)
+                graphs = create_graphs(repetition_df, threshold_df)
+                st.session_state.evaluation_data = {
+                    "repetition_df": repetition_df,
+                    "threshold_df": threshold_df,
+                    "graphs": graphs,
+                }
 
-                st.markdown("#### Evaluation Results")
-                st.dataframe(results_df, use_container_width=True)
-
-                for title, fig in graphs.items():
-                    st.markdown(f"#### {title}")
-                    st.pyplot(fig)
+                st.success("Evaluation dashboard updated.")
 
             except Exception as e:
                 st.error(f"Evaluation error: {e}")
+
+if st.session_state.evaluation_data:
+    data = st.session_state.evaluation_data
+    repetition_df = data["repetition_df"]
+    threshold_df = data["threshold_df"]
+    graphs = data["graphs"]
+
+    tab_threshold, tab_repetition, tab_tables = st.tabs(
+        ["Threshold Analysis", "Repetition Analysis", "Tables"]
+    )
+
+    with tab_threshold:
+        st.markdown("#### 1. Cache Hit Rate vs Similarity Threshold")
+        st.pyplot(graphs[0][1], use_container_width=True)
+
+        st.markdown("#### 3. False Positive Rate vs Threshold")
+        st.pyplot(graphs[2][1], use_container_width=True)
+
+        st.markdown("#### Threshold Summary")
+        st.dataframe(threshold_df, use_container_width=True)
+
+    with tab_repetition:
+        st.markdown("#### 2. Cost Savings vs Repetition Rate")
+        st.pyplot(graphs[1][1], use_container_width=True)
+
+        st.markdown("#### 4. Average Latency vs Repetition Rate")
+        st.pyplot(graphs[3][1], use_container_width=True)
+
+        st.markdown("#### Repetition Summary")
+        st.dataframe(repetition_df, use_container_width=True)
+
+    with tab_tables:
+        st.markdown("#### Repetition Results Table")
+        st.dataframe(repetition_df, use_container_width=True)
+
+        st.markdown("#### Threshold Results Table")
+        st.dataframe(threshold_df, use_container_width=True)
